@@ -1,0 +1,5 @@
+customtkinter>=5.2
+qrcode>=8.0
+pillow>=10.0
+yt-dlp[default]>=2026.10.26
+imageio-ffmpeg>=0.5

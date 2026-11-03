@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Datos locales
+ajustes.json
+error.log
+
+# Archivos generados por la app
+descargas/*
+!descargas/.gitkeep
+generados/*
+!generados/.gitkeep
