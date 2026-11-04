@@ -1,18 +1,19 @@
 """Ventana principal: menú lateral + área de la herramienta activa."""
 
-import sys
+import ctypes
 from tkinter import messagebox
 
 import customtkinter as ctk
 from PIL import Image
 
-from . import ui
+from . import ui, windows
 from .config import CARPETA_ASSETS, NOMBRE_APP, VERSION, Ajustes
 from .herramientas import HERRAMIENTAS
 
 
 class App(ctk.CTk):
     def __init__(self):
+        windows.preparar_proceso()  # antes de crear la ventana
         self.ajustes = Ajustes()
         ctk.set_appearance_mode(self.ajustes["tema"])
         super().__init__(fg_color=ui.FONDO)
@@ -46,16 +47,15 @@ class App(ctk.CTk):
         return f"{ancho}x{alto}+{x}+{y}"
 
     def _poner_icono(self):
+        if not windows.es_windows():
+            return
         ico = CARPETA_ASSETS / "icono.ico"
-        if sys.platform == "win32":
-            try:  # que la barra de tareas muestre nuestro icono y no el de Python
-                import ctypes
-                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("utilidades.app")
-            except Exception:
-                pass
-            if ico.exists():
-                # CustomTkinter pone su propio icono a los ~200 ms; lo pisamos después.
-                self.after(250, lambda: self.iconbitmap(str(ico)))
+        if ico.exists():
+            # CustomTkinter pone su propio icono a los ~200 ms; lo pisamos después.
+            self.after(250, lambda: self.iconbitmap(str(ico)))
+        # Icono y comando correctos al anclar a la barra de tareas.
+        self.after(300, lambda: windows.preparar_ventana(
+            ctypes.windll.user32.GetParent(self.winfo_id())))
 
     # ------------------------------------------------------------- lateral --
     def _crear_lateral(self):

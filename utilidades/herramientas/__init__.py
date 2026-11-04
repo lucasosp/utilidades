@@ -6,9 +6,11 @@ herede de ``Herramienta`` y añádela a la lista. El menú lateral se genera sol
 
 from .base import Herramienta
 from .qr import HerramientaQR
+from .spotify import HerramientaSpotify
 from .youtube import HerramientaYouTube
 
 HERRAMIENTAS: list[type[Herramienta]] = [
     HerramientaQR,
     HerramientaYouTube,
+    HerramientaSpotify,
 ]

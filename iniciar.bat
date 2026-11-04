@@ -38,4 +38,8 @@ copy /y requirements.txt "%VENV%\requirements.txt" >nul
 
 rem --- 3. Arrancar sin ventana de consola -------------------------------------
 :arrancar
-start "" "%PYW%" -m utilidades
+if /i "%~1"=="--acceso-directo" (
+    "%PY%" -m utilidades --acceso-directo
+    exit /b %errorlevel%
+)
+start "" "%PYW%" "%~dp0Utilidades.pyw"

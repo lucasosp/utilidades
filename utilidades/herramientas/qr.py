@@ -2,6 +2,7 @@
 
 import re
 import unicodedata
+from tkinter import colorchooser
 from datetime import datetime
 from urllib.parse import urlparse
 
@@ -13,7 +14,7 @@ from .. import ui
 from ..config import CARPETA_QR, asegurar_carpeta
 from .base import Herramienta
 
-COLORES = ["#111111", "#5B5BF0", "#2563EB", "#0F9D58", "#E11D48", "#EA580C", "#7C3AED"]
+NEGRO, BLANCO = "#000000", "#ffffff"
 
 
 def nombre_seguro(texto: str, maximo: int = 40) -> str:
@@ -31,6 +32,26 @@ def nombre_desde_contenido(contenido: str) -> str:
         ruta = next((p for p in url.path.split("/") if p), "")
         return nombre_seguro(f"{dominio} {ruta}") or "qr"
     return nombre_seguro(contenido) or "qr"
+
+
+def _luminancia(color: str) -> float:
+    canales = [int(color[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+    lineal = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in canales]
+    return 0.2126 * lineal[0] + 0.7152 * lineal[1] + 0.0722 * lineal[2]
+
+
+def aviso_contraste(codigo: str, fondo: str | None) -> str | None:
+    """Los lectores de QR necesitan un código oscuro sobre fondo claro y buen contraste."""
+    if fondo is None:
+        if _luminancia(codigo) > 0.4:
+            return "Fondo transparente: ponlo sobre algo claro para que se lea bien."
+        return None
+    l_cod, l_fon = _luminancia(codigo), _luminancia(fondo)
+    if l_cod > l_fon:
+        return "El código es más claro que el fondo: muchos móviles no lo leerán."
+    if (l_fon + 0.05) / (l_cod + 0.05) < 3:
+        return "Poco contraste entre colores: puede costar escanearlo."
+    return None
 
 
 def fondo_cuadriculado(tam: int, celda: int = 10) -> Image.Image:
@@ -53,7 +74,6 @@ class HerramientaQR(Herramienta):
         super().__init__(master, app)
         self.imagen = None            # PIL.Image a resolución completa
         self._pendiente = None        # id del after() para la vista previa
-        self.color = self.ajustes["qr_color"]
         self.tam_previa = 260
 
         self.grid_columnconfigure(0, weight=3, uniform="col")
@@ -93,27 +113,18 @@ class HerramientaQR(Herramienta):
         self.nombre_archivo.pack(fill="x")
         self.nombre_archivo.bind("<Return>", lambda _e: self.guardar())
 
-        ui.Etiqueta(cuerpo, "Estilo", 13, "bold").pack(fill="x", pady=(18, 8))
-        fila = ctk.CTkFrame(cuerpo, fg_color="transparent")
-        fila.pack(fill="x")
-        self._muestras = {}
-        for color in COLORES:
-            b = ctk.CTkButton(
-                fila, text="", width=30, height=30, corner_radius=15, fg_color=color,
-                hover_color=color, border_width=3, border_color=ui.TARJETA,
-                command=lambda c=color: self._elegir_color(c),
-            )
-            b.pack(side="left", padx=(0, 8))
-            self._muestras[color] = b
-        self._marcar_color()
-
-        self.transparente = ctk.CTkSwitch(
-            fila, text="Fondo transparente", font=ui.fuente(12), text_color=ui.TEXTO,
-            progress_color=ui.ACENTO, command=self._cambiar_transparencia,
+        # Colores: por defecto negro sobre blanco; las opciones solo salen si se piden.
+        self.fila_personalizar = ctk.CTkFrame(cuerpo, fg_color="transparent")
+        self.fila_personalizar.pack(fill="x", pady=(18, 0))
+        self.personalizar = ctk.CTkSwitch(
+            self.fila_personalizar, text="Personalizar colores", font=ui.fuente(13, "bold"),
+            text_color=ui.TEXTO, progress_color=ui.ACENTO, command=self._cambiar_personalizar,
         )
-        if self.ajustes["qr_transparente"]:
-            self.transparente.select()
-        self.transparente.pack(side="right")
+        self.personalizar.pack(side="left")
+        self.panel_colores = self._crear_panel_colores(cuerpo)
+        if self.ajustes["qr_personalizar"]:
+            self.personalizar.select()
+            self.panel_colores.pack(fill="x", pady=(10, 0), after=self.fila_personalizar)
 
         ctk.CTkFrame(cuerpo, fg_color="transparent", height=1).pack(fill="both", expand=True)
 
@@ -130,6 +141,42 @@ class HerramientaQR(Herramienta):
         self.estado = ui.Etiqueta(cuerpo, "", 12, suave=True)
         self.estado.pack(fill="x", pady=(10, 0))
 
+    def _crear_panel_colores(self, master):
+        panel = ctk.CTkFrame(master, fg_color=ui.CAMPO, corner_radius=12)
+        panel.grid_columnconfigure(3, weight=1)
+        self._filas_color = {}
+        for fila, (clave, texto) in enumerate((("qr_color", "Código"), ("qr_fondo", "Fondo"))):
+            ui.Etiqueta(panel, texto, 12, "bold", width=60).grid(
+                row=fila, column=0, sticky="w", padx=(14, 8), pady=(12 if fila == 0 else 6, 6))
+            muestra = ctk.CTkButton(
+                panel, text="", width=34, height=30, corner_radius=8, border_width=1,
+                border_color=ui.BORDE, command=lambda c=clave: self._abrir_selector(c),
+            )
+            muestra.grid(row=fila, column=1, padx=(0, 8))
+            campo = ui.Campo(panel, height=30, width=100)
+            campo.grid(row=fila, column=2, sticky="w")
+            campo.bind("<Return>", lambda _e, c=clave: self._color_desde_campo(c))
+            campo.bind("<FocusOut>", lambda _e, c=clave: self._color_desde_campo(c), add="+")
+            self._filas_color[clave] = (muestra, campo)
+
+        self.transparente = ctk.CTkSwitch(
+            panel, text="Transparente", font=ui.fuente(12), text_color=ui.TEXTO,
+            progress_color=ui.ACENTO, command=self._cambiar_transparencia,
+        )
+        if self.ajustes["qr_transparente"]:
+            self.transparente.select()
+        self.transparente.grid(row=1, column=3, sticky="w", padx=(14, 0))
+
+        restablecer = ctk.CTkButton(
+            panel, text="Restablecer", width=90, height=28, corner_radius=8,
+            font=ui.fuente(12), fg_color="transparent", hover_color=ui.SECUNDARIO,
+            text_color=ui.TEXTO_SUAVE, command=self._restablecer_colores,
+        )
+        restablecer.grid(row=0, column=3, sticky="e", padx=(0, 10), pady=(12, 6))
+        ctk.CTkFrame(panel, fg_color="transparent", width=1, height=6).grid(row=2, column=0)
+        self._pintar_colores()
+        return panel
+
     def _crear_previa(self):
         tarjeta = ui.Tarjeta(self)
         tarjeta.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
@@ -142,7 +189,8 @@ class HerramientaQR(Herramienta):
         marco.bind("<Configure>", self._al_redimensionar)
         self.previa = ctk.CTkLabel(marco, text="", font=ui.fuente(13), text_color=ui.TEXTO_SUAVE)
         self.previa.place(relx=0.5, rely=0.5, anchor="center")
-        self.info = ui.Etiqueta(cuerpo, "", 12, suave=True, anchor="center", justify="center")
+        self.info = ui.Etiqueta(cuerpo, "", 12, suave=True, anchor="center", justify="center",
+                                wraplength=280)
         self.info.pack(fill="x")
 
     # -------------------------------------------------------------- lógica --
@@ -152,18 +200,67 @@ class HerramientaQR(Herramienta):
     def _contenido(self) -> str:
         return self.texto.get("1.0", "end").strip()
 
-    def _elegir_color(self, color):
-        self.color = color
-        self.ajustes["qr_color"] = color
-        self._marcar_color()
+    # Colores ---------------------------------------------------------------
+    def _colores(self) -> tuple[str, str | None]:
+        """(color del código, color del fondo o None si es transparente)."""
+        if not self.personalizar.get():
+            return NEGRO, BLANCO
+        fondo = None if self.transparente.get() else self.ajustes["qr_fondo"]
+        return self.ajustes["qr_color"], fondo
+
+    def _pintar_colores(self):
+        for clave, (muestra, campo) in self._filas_color.items():
+            color = self.ajustes[clave]
+            muestra.configure(fg_color=color, hover_color=color)
+            campo.delete(0, "end")
+            campo.insert(0, color.upper())
+        transparente = bool(self.transparente.get())
+        muestra, campo = self._filas_color["qr_fondo"]
+        muestra.configure(state="disabled" if transparente else "normal")
+        campo.configure(state="disabled" if transparente else "normal")
+
+    def _poner_color(self, clave, color):
+        self.ajustes[clave] = color.lower()
+        self._pintar_colores()
         self._actualizar_previa()
 
-    def _marcar_color(self):
-        for color, boton in self._muestras.items():
-            boton.configure(border_color=ui.ACENTO if color == self.color else ui.TARJETA)
+    def _abrir_selector(self, clave):
+        titulo = "Color del código" if clave == "qr_color" else "Color del fondo"
+        _rgb, color = colorchooser.askcolor(self.ajustes[clave], title=titulo,
+                                            parent=self.winfo_toplevel())
+        if color:
+            self._poner_color(clave, color)
+
+    def _color_desde_campo(self, clave):
+        _muestra, campo = self._filas_color[clave]
+        texto = campo.get().strip().lstrip("#")
+        if len(texto) == 3:
+            texto = "".join(c * 2 for c in texto)
+        if re.fullmatch(r"[0-9a-fA-F]{6}", texto):
+            if f"#{texto.lower()}" != self.ajustes[clave]:
+                self._poner_color(clave, f"#{texto}")
+        else:
+            self._pintar_colores()  # valor no válido: se vuelve al anterior
+
+    def _restablecer_colores(self):
+        self.ajustes["qr_color"], self.ajustes["qr_fondo"] = NEGRO, BLANCO
+        self.transparente.deselect()
+        self.ajustes["qr_transparente"] = False
+        self._pintar_colores()
+        self._actualizar_previa()
+
+    def _cambiar_personalizar(self):
+        activo = bool(self.personalizar.get())
+        self.ajustes["qr_personalizar"] = activo
+        if activo:
+            self.panel_colores.pack(fill="x", pady=(10, 0), after=self.fila_personalizar)
+        else:
+            self.panel_colores.pack_forget()
+        self._actualizar_previa()
 
     def _cambiar_transparencia(self):
         self.ajustes["qr_transparente"] = bool(self.transparente.get())
+        self._pintar_colores()
         self._actualizar_previa()
 
     def _al_redimensionar(self, evento):
@@ -185,8 +282,9 @@ class HerramientaQR(Herramienta):
                            box_size=20, border=4)
         qr.add_data(contenido)
         qr.make(fit=True)
-        fondo = "transparent" if self.transparente.get() else "white"
-        imagen = qr.make_image(fill_color=self.color, back_color=fondo).get_image()
+        codigo, fondo = self._colores()
+        imagen = qr.make_image(fill_color=codigo,
+                               back_color=fondo or "transparent").get_image()
         return imagen.convert("RGBA"), qr.version
 
     def _actualizar_previa(self):
@@ -209,17 +307,18 @@ class HerramientaQR(Herramienta):
 
         tam = self.tam_previa * 2  # el doble para que se vea nítido en pantallas HiDPI
         muestra = self.imagen.resize((tam, tam), Image.Resampling.NEAREST)
-        if self.transparente.get():
+        if self._colores()[1] is None:
             fondo = fondo_cuadriculado(tam, celda=16)
             fondo.alpha_composite(muestra)
             muestra = fondo
         self._ctk_img = ctk.CTkImage(muestra, size=(self.tam_previa, self.tam_previa))
         self.previa.configure(image=self._ctk_img, text="")
         lado = self.imagen.size[0]
-        self.info.configure(
-            text=f"{lado}×{lado} px  ·  versión {version}  ·  {len(contenido)} caracteres",
-            text_color=ui.TEXTO_SUAVE,
-        )
+        texto = f"{lado}×{lado} px  ·  versión {version}  ·  {len(contenido)} caracteres"
+        color = ui.TEXTO_SUAVE
+        if aviso := aviso_contraste(*self._colores()):
+            texto, color = f"{texto}\n{aviso}", ui.AVISO
+        self.info.configure(text=texto, text_color=color)
         self.boton_guardar.configurar(estado="normal")
 
     def guardar(self):

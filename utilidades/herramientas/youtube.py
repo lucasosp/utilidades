@@ -1,36 +1,23 @@
 """Descargador de YouTube (MP3 / MP4) con soporte para listas de reproducción."""
 
-import queue
-import threading
-
 import customtkinter as ctk
 
 from .. import ui
 from ..config import CARPETA_DESCARGAS, asegurar_carpeta
 from .base import Herramienta
-from .youtube_motor import (CALIDADES_MP3, CALIDADES_MP4, Descargador, Peticion,
-                            actualizar_yt_dlp, analizar_enlace, ffmpeg_disponible)
+from .descarga_base import CALIDADES_MP3, ffmpeg_disponible
+from .panel_descarga import PanelDescarga
+from .youtube_motor import CALIDADES_MP4, Descargador, Peticion, analizar_enlace
 
 SOLO_VIDEO = "Solo este vídeo"
 LISTA_ENTERA = "Toda la lista"
 
 
-def _bytes_seg(v) -> str:
-    if not v:
+def leer_portapapeles(widget) -> str:
+    try:
+        return widget.clipboard_get().strip()
+    except Exception:
         return ""
-    for unidad in ("B/s", "KB/s", "MB/s", "GB/s"):
-        if v < 1024:
-            return f"{v:.1f} {unidad}" if unidad != "B/s" else f"{v:.0f} {unidad}"
-        v /= 1024
-    return f"{v:.1f} TB/s"
-
-
-def _tiempo(seg) -> str:
-    if seg is None:
-        return ""
-    seg = int(seg)
-    return f"{seg // 3600}:{seg % 3600 // 60:02d}:{seg % 60:02d}" if seg >= 3600 \
-        else f"{seg // 60}:{seg % 60:02d}"
 
 
 class HerramientaYouTube(Herramienta):
@@ -41,14 +28,12 @@ class HerramientaYouTube(Herramienta):
 
     def __init__(self, master, app):
         super().__init__(master, app)
-        self.descargador: Descargador | None = None
-        self._carpeta_ultima = None
-        self._ultimo_estado = None
-
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
         self._crear_formulario()
-        self._crear_progreso()
+        self.panel = PanelDescarga(self, CARPETA_DESCARGAS,
+                                   "Los archivos se guardan en la carpeta «descargas».")
+        self.panel.grid(row=1, column=0, sticky="nsew")
         self._al_cambiar_enlace()
 
     # ------------------------------------------------------------------ UI --
@@ -79,7 +64,6 @@ class HerramientaYouTube(Herramienta):
         self.modo_lista.set(SOLO_VIDEO)
         self.modo_lista.pack(side="right", padx=10, pady=8)
 
-        # Opciones
         opciones = ctk.CTkFrame(cuerpo, fg_color="transparent")
         opciones.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(18, 0))
         opciones.grid_columnconfigure(2, weight=1)
@@ -101,66 +85,23 @@ class HerramientaYouTube(Herramienta):
         self.boton.grid(row=1, column=2, sticky="e", pady=(8, 0))
         self.boton.boton.configure(width=200)
 
-    def _crear_progreso(self):
-        tarjeta = ui.Tarjeta(self)
-        tarjeta.grid(row=1, column=0, sticky="nsew")
-        cuerpo = ctk.CTkFrame(tarjeta, fg_color="transparent")
-        cuerpo.pack(fill="both", expand=True, padx=22, pady=20)
-
-        self.titulo_actual = ui.Etiqueta(cuerpo, "Listo para descargar", 14, "bold",
-                                         wraplength=700)
-        self.titulo_actual.pack(fill="x")
-        self.detalle = ui.Etiqueta(cuerpo, "Los archivos se guardan en la carpeta «descargas».",
-                                   12, suave=True)
-        self.detalle.pack(fill="x", pady=(2, 10))
-        self.barra = ctk.CTkProgressBar(cuerpo, height=8, corner_radius=4,
-                                        progress_color=ui.ACENTO, fg_color=ui.SECUNDARIO)
-        self.barra.set(0)
-        self.barra.pack(fill="x")
-
-        self.registro = ctk.CTkTextbox(
-            cuerpo, corner_radius=10, border_width=0, fg_color=ui.CAMPO, text_color=ui.TEXTO,
-            font=ui.fuente(12), wrap="word", height=120,
-        )
-        self.registro.pack(fill="both", expand=True, pady=(16, 12))
-        self.registro.configure(state="disabled")
-
-        pie = ctk.CTkFrame(cuerpo, fg_color="transparent")
-        pie.pack(fill="x")
-        ui.Boton(pie, "Abrir carpeta", self._abrir_carpeta, "carpeta", alto=38).pack(side="left")
-        self.boton_actualizar = ui.Boton(pie, "Actualizar yt-dlp", self._actualizar, "actualizar",
-                                         alto=38)
-        self.boton_actualizar.pack(side="right")
-
     # ------------------------------------------------------- interacción --
     def al_mostrar(self):
-        if not self.url.get().strip() and not self.descargador:
-            try:
-                portapapeles = self.clipboard_get().strip()
-            except Exception:
-                portapapeles = ""
-            if self._parece_youtube(portapapeles):
-                self.url.insert(0, portapapeles)
+        if not self.url.get().strip() and not self.panel.ocupado:
+            texto = leer_portapapeles(self)
+            if "\n" not in texto and any(d in texto for d in ("youtube.com/", "youtu.be/")):
+                self.url.insert(0, texto)
                 self._al_cambiar_enlace()
         self.url.focus_set()
 
-    @staticmethod
-    def _parece_youtube(texto: str) -> bool:
-        return "\n" not in texto and any(d in texto for d in ("youtube.com/", "youtu.be/"))
-
     def _pegar(self):
-        try:
-            texto = self.clipboard_get().strip()
-        except Exception:
-            return
         self.url.delete(0, "end")
-        self.url.insert(0, texto)
+        self.url.insert(0, leer_portapapeles(self))
         self._al_cambiar_enlace()
 
     def _al_cambiar_enlace(self):
         enlace = analizar_enlace(self.url.get())
-        mostrar_selector = enlace.valido and enlace.video and enlace.lista
-        if mostrar_selector:
+        if enlace.valido and enlace.video and enlace.lista:
             self.fila_lista.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(12, 0))
         else:
             self.fila_lista.grid_remove()
@@ -200,14 +141,12 @@ class HerramientaYouTube(Herramienta):
         clave = "yt_calidad_mp3" if self.formato.get() == "MP3" else "yt_calidad_mp4"
         self.ajustes[clave] = valor
 
-    def _abrir_carpeta(self):
-        carpeta = self._carpeta_ultima or CARPETA_DESCARGAS
-        ui.abrir_en_explorador(asegurar_carpeta(carpeta))
-
     # ---------------------------------------------------------- descargas --
     def descargar(self):
-        if self.descargador:
-            return self._cancelar()
+        if self.panel.ocupado:
+            self.panel.cancelar()
+            self.boton.configurar(texto="Cancelando…", estado="disabled")
+            return
         url = self.url.get().strip()
         enlace = analizar_enlace(url)
         if not enlace.valido:
@@ -218,150 +157,16 @@ class HerramientaYouTube(Herramienta):
         lista = bool(enlace.lista) and (not enlace.video or self.modo_lista.get() == LISTA_ENTERA)
         peticion = Peticion(url=url, formato=self.formato.get(), calidad=self.calidad.get(),
                             lista_completa=lista, carpeta=asegurar_carpeta(CARPETA_DESCARGAS))
-        self.descargador = Descargador(peticion)
-        self._carpeta_ultima = None
-        self._ultimo_estado = None
-        self._limpiar_registro()
-        self.barra.set(0)
-        self._titulo("Preparando…")
-        self._detalle("")
         self.boton.configurar(texto="Cancelar", tipo="peligro", icono_nombre="cancelar")
-        self.descargador.start()
-        self.after(100, self._leer_eventos)
+        self.panel.iniciar(Descargador(peticion), self._al_terminar)
 
-    def _cancelar(self):
-        if self.descargador:
-            self.descargador.cancelar()
-            self.boton.configurar(texto="Cancelando…", estado="disabled")
-
-    def _leer_eventos(self):
-        d = self.descargador
-        if d is None:
-            return
-        try:
-            while True:
-                tipo, datos = d.eventos.get_nowait()
-                getattr(self, f"_ev_{tipo}")(datos)
-                if tipo == "fin":
-                    return
-        except queue.Empty:
-            pass
-        self.after(100, self._leer_eventos)
-
-    @staticmethod
-    def _prefijo(posicion) -> str:
-        indice, total = posicion or (None, None)
-        if indice and total:
-            return f"{indice} de {total}  ·  "
-        return f"N.º {indice}  ·  " if indice else ""
-
-    def _ev_estado(self, texto):
-        if texto != self._ultimo_estado:
-            self._ultimo_estado = texto
-            self._detalle(texto)
-            if texto.startswith("Obteniendo"):
-                self.barra.configure(mode="indeterminate")
-                self.barra.start()
-
-    def _ev_progreso(self, p):
-        self._parar_indeterminado()
-        self._ultimo_estado = None
-        self._titulo(p["titulo"])
-        partes = [self._prefijo(p["posicion"]).rstrip(" ·")]
-        if p["fraccion"] is not None:
-            partes.append(f"{p['fraccion'] * 100:.0f} %")
-        if p["pista"]:
-            partes.append("pista de audio")
-        if v := _bytes_seg(p["velocidad"]):
-            partes.append(v)
-        if p["eta"]:
-            partes.append(f"quedan {_tiempo(p['eta'])}")
-        self._detalle("  ·  ".join(x for x in partes if x))
-        if p["fraccion"] is not None:
-            self.barra.set(p["fraccion"])
-
-    def _ev_procesando(self, p):
-        self._titulo(p["titulo"])
-        self.barra.set(1)
-
-    def _ev_completado(self, ruta):
-        self._carpeta_ultima = ruta.parent
-        self._escribir(f"✓  {ruta.name}", "ok")
-
-    def _ev_error(self, mensaje):
-        self._escribir(f"✕  {mensaje}", "error")
-
-    def _ev_fin(self, r):
-        self._parar_indeterminado()
-        self.descargador = None
+    def _al_terminar(self, _resultado):
         self.boton.configurar(texto="Descargar", tipo="primario", icono_nombre="descargar",
                               estado="normal")
-        hechos, errores = r["completados"], r["errores"]
-        archivos = "archivo" if hechos == 1 else "archivos"
-        if r["cancelado"]:
-            self._titulo("Descarga cancelada")
-            self._detalle(f"Se completaron {hechos} {archivos} antes de cancelar.")
-        elif hechos and not errores:
-            self._titulo("¡Listo!" if hechos == 1 else f"¡Listo! {hechos} {archivos} descargados")
-            self._detalle("Pulsa «Abrir carpeta» para verlos.")
-            self.barra.set(1)
-        elif hechos:
-            self._titulo(f"{hechos} {archivos} descargados, {errores} con errores")
-            self._detalle("Algunos vídeos pueden ser privados o no estar disponibles.")
-        else:
-            self._titulo("No se pudo descargar")
-            self._detalle("Revisa el enlace. Si YouTube ha cambiado algo, prueba «Actualizar yt-dlp».")
-            self.barra.set(0)
-
-    # -------------------------------------------------------- utilidades --
-    def _parar_indeterminado(self):
-        if self.barra.cget("mode") == "indeterminate":
-            self.barra.stop()
-            self.barra.configure(mode="determinate")
-            self.barra.set(0)
-
-    def _titulo(self, texto):
-        self.titulo_actual.configure(text=texto)
-
-    def _detalle(self, texto):
-        self.detalle.configure(text=texto)
-
-    def _limpiar_registro(self):
-        self.registro.configure(state="normal")
-        self.registro.delete("1.0", "end")
-        self.registro.configure(state="disabled")
-
-    def _escribir(self, linea, etiqueta=None):
-        oscuro = ctk.get_appearance_mode() == "Dark"
-        colores = {"ok": ui.EXITO, "error": ui.ERROR}
-        self.registro.configure(state="normal")
-        if etiqueta:
-            self.registro.tag_config(etiqueta, foreground=colores[etiqueta][int(oscuro)])
-        self.registro.insert("end", linea + "\n", etiqueta)
-        self.registro.see("end")
-        self.registro.configure(state="disabled")
-
-    def _actualizar(self):
-        self.boton_actualizar.configurar(texto="Actualizando…", estado="disabled")
-
-        def tarea():
-            ok, msg = actualizar_yt_dlp()
-            self.after(0, lambda: terminado(ok, msg))
-
-        def terminado(ok, msg):
-            self.boton_actualizar.configurar(texto="Actualizar yt-dlp", estado="normal")
-            if ok:
-                self._escribir("✓  yt-dlp actualizado. Reinicia la app para usar la nueva versión.",
-                               "ok")
-            else:
-                self._escribir(f"✕  No se pudo actualizar yt-dlp: {msg}", "error")
-
-        threading.Thread(target=tarea, daemon=True).start()
 
     # --------------------------------------------------------------- cierre --
     def puede_cerrar(self) -> bool:
-        return self.descargador is None
+        return not self.panel.ocupado
 
     def al_cerrar(self):
-        if self.descargador:
-            self.descargador.cancelar()
+        self.panel.cancelar()

@@ -15,11 +15,14 @@ ARCHIVO_AJUSTES = RAIZ / "ajustes.json"
 _POR_DEFECTO = {
     "tema": "dark",
     "herramienta": "qr",
-    "qr_color": "#111111",
+    "qr_personalizar": False,
+    "qr_color": "#000000",
+    "qr_fondo": "#ffffff",
     "qr_transparente": False,
     "yt_formato": "MP3",
     "yt_calidad_mp3": "320 kbps",
     "yt_calidad_mp4": "Máxima",
+    "sp_calidad": "320 kbps",
 }
 
 

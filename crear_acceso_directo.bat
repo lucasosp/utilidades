@@ -1,18 +1,13 @@
 @echo off
-rem Crea un acceso directo "Utilidades" en el escritorio con su icono.
+rem Crea accesos directos "Utilidades" en el escritorio y en el menu Inicio.
+rem Desde cualquiera de los dos se puede anclar la app a la barra de tareas.
 cd /d "%~dp0"
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$d = [Environment]::GetFolderPath('Desktop');" ^
-  "$s = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $d 'Utilidades.lnk'));" ^
-  "$s.TargetPath = '%~dp0iniciar.bat';" ^
-  "$s.WorkingDirectory = '%~dp0';" ^
-  "$s.IconLocation = '%~dp0assets\icono.ico';" ^
-  "$s.WindowStyle = 7;" ^
-  "$s.Description = 'Utilidades: QR, YouTube y mas';" ^
-  "$s.Save()"
+call "%~dp0iniciar.bat" --acceso-directo
 if errorlevel 1 (
-    echo No se pudo crear el acceso directo.
+    echo.
+    echo   No se pudieron crear los accesos directos.
 ) else (
-    echo Acceso directo creado en el escritorio.
+    echo.
+    echo   Listo. Tambien puedes buscar "Utilidades" en el menu Inicio.
 )
 pause
