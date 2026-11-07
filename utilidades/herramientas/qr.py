@@ -1,58 +1,16 @@
 """Generador de códigos QR con vista previa en directo."""
 
 import re
-import unicodedata
 from tkinter import colorchooser
-from datetime import datetime
-from urllib.parse import urlparse
 
 import customtkinter as ctk
-import qrcode
 from PIL import Image, ImageDraw
 
 from .. import ui
 from ..config import CARPETA_QR, asegurar_carpeta
 from .base import Herramienta
-
-NEGRO, BLANCO = "#000000", "#ffffff"
-
-
-def nombre_seguro(texto: str, maximo: int = 40) -> str:
-    texto = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode()
-    texto = re.sub(r"[^\w\s-]", "", texto.lower())
-    texto = re.sub(r"[\s_-]+", "_", texto).strip("_")
-    return texto[:maximo].rstrip("_")
-
-
-def nombre_desde_contenido(contenido: str) -> str:
-    contenido = contenido.strip()
-    url = urlparse(contenido if "://" in contenido else "")
-    if url.netloc:
-        dominio = url.netloc.removeprefix("www.").split(".")[0]
-        ruta = next((p for p in url.path.split("/") if p), "")
-        return nombre_seguro(f"{dominio} {ruta}") or "qr"
-    return nombre_seguro(contenido) or "qr"
-
-
-def _luminancia(color: str) -> float:
-    canales = [int(color[i:i + 2], 16) / 255 for i in (1, 3, 5)]
-    lineal = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in canales]
-    return 0.2126 * lineal[0] + 0.7152 * lineal[1] + 0.0722 * lineal[2]
-
-
-def aviso_contraste(codigo: str, fondo: str | None) -> str | None:
-    """Los lectores de QR necesitan un código oscuro sobre fondo claro y buen contraste."""
-    if fondo is None:
-        if _luminancia(codigo) > 0.4:
-            return "Fondo transparente: ponlo sobre algo claro para que se lea bien."
-        return None
-    l_cod, l_fon = _luminancia(codigo), _luminancia(fondo)
-    if l_cod > l_fon:
-        return "El código es más claro que el fondo: muchos móviles no lo leerán."
-    if (l_fon + 0.05) / (l_cod + 0.05) < 3:
-        return "Poco contraste entre colores: puede costar escanearlo."
-    return None
-
+from .qr_motor import (BLANCO, NEGRO, aviso_contraste, generar_qr, nombre_desde_contenido,
+                       nombre_seguro, ruta_libre)
 
 def fondo_cuadriculado(tam: int, celda: int = 10) -> Image.Image:
     img = Image.new("RGBA", (tam, tam), "#FFFFFF")
@@ -278,14 +236,7 @@ class HerramientaQR(Herramienta):
         self._pendiente = self.after(180, self._actualizar_previa)
 
     def _generar(self, contenido: str) -> tuple[Image.Image, int]:
-        qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M,
-                           box_size=20, border=4)
-        qr.add_data(contenido)
-        qr.make(fit=True)
-        codigo, fondo = self._colores()
-        imagen = qr.make_image(fill_color=codigo,
-                               back_color=fondo or "transparent").get_image()
-        return imagen.convert("RGBA"), qr.version
+        return generar_qr(contenido, *self._colores())
 
     def _actualizar_previa(self):
         self._pendiente = None
@@ -331,10 +282,7 @@ class HerramientaQR(Herramienta):
 
         base = nombre_seguro(self.nombre_archivo.get(), 60) or nombre_desde_contenido(
             self._contenido())
-        carpeta = asegurar_carpeta(CARPETA_QR)
-        ruta = carpeta / f"{base}.png"
-        if ruta.exists():
-            ruta = carpeta / f"{base}_{datetime.now():%Y%m%d_%H%M%S}.png"
+        ruta = ruta_libre(asegurar_carpeta(CARPETA_QR), base, "png")
         try:
             self.imagen.save(ruta, format="PNG")
         except OSError as e:

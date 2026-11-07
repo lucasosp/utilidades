@@ -2,7 +2,13 @@
 __pycache__/
 *.py[cod]
 .venv/
+.venv-voz/
 venv/
+
+# Modelos de voz descargados y voces del usuario (privadas)
+.modelos/
+voces/*
+!voces/.gitkeep
 
 # Datos locales
 ajustes.json

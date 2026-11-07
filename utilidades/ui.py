@@ -35,18 +35,22 @@ AVISO = ("#D97706", "#FBBF24")
 # Iconos (glifos de las fuentes de iconos que trae Windows)
 # --------------------------------------------------------------------------- #
 ICONOS = {
-    "qr": "",
-    "video": "",
-    "musica": "",
-    "descargar": "",
-    "carpeta": "",
-    "pegar": "",
-    "guardar": "",
-    "cancelar": "",
-    "tema": "",
-    "actualizar": "",
-    "enlace": "",
-    "lista": "",
+    "qr": "\uED14",
+    "video": "\uE714",
+    "musica": "\uE8D6",
+    "descargar": "\uE896",
+    "carpeta": "\uE838",
+    "pegar": "\uE77F",
+    "guardar": "\uE74E",
+    "cancelar": "\uE711",
+    "tema": "\uE793",
+    "actualizar": "\uE72C",
+    "enlace": "\uE71B",
+    "lista": "\uE8FD",
+    "voz": "\uE767",
+    "anadir": "\uE710",
+    "play": "\uE768",
+    "parar": "\uE71A",
 }
 
 _familia_iconos = None
@@ -204,9 +208,50 @@ class Desplegable(ctk.CTkOptionMenu):
         )
 
 
+class Consejo:
+    """Pequeño texto de ayuda que aparece al dejar el ratón encima de un widget."""
+
+    def __init__(self, widget, texto, retraso=450):
+        self.widget, self.texto, self.retraso = widget, texto, retraso
+        self._pendiente = self._ventana = None
+        widget.bind("<Enter>", self._programar, add="+")
+        widget.bind("<Leave>", self._ocultar, add="+")
+        widget.bind("<ButtonPress>", self._ocultar, add="+")
+
+    def _programar(self, _e=None):
+        self._pendiente = self.widget.after(self.retraso, self._mostrar)
+
+    def _mostrar(self):
+        x = self.widget.winfo_rootx() + self.widget.winfo_width() // 2
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 6
+        self._ventana = v = ctk.CTkToplevel(self.widget)
+        v.overrideredirect(True)
+        v.attributes("-topmost", True)
+        v.configure(fg_color=TEXTO)
+        ctk.CTkLabel(v, text=self.texto, font=fuente(12), text_color=FONDO).pack(padx=8, pady=3)
+        v.update_idletasks()
+        v.geometry(f"+{x - v.winfo_width() // 2}+{y}")
+
+    def _ocultar(self, _e=None):
+        if self._pendiente:
+            self.widget.after_cancel(self._pendiente)
+            self._pendiente = None
+        if self._ventana:
+            self._ventana.destroy()
+            self._ventana = None
+
+
 # --------------------------------------------------------------------------- #
 # Utilidades varias
 # --------------------------------------------------------------------------- #
+def abrir_archivo(ruta: Path):
+    """Abre un archivo con el programa predeterminado del sistema."""
+    if sys.platform == "win32":
+        os.startfile(ruta)
+    else:
+        subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", str(ruta)])
+
+
 def abrir_en_explorador(ruta: Path, seleccionar: bool = False):
     """Abre una carpeta (o muestra un archivo seleccionado) en el explorador."""
     ruta = Path(ruta)

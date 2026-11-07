@@ -8,7 +8,7 @@ from PIL import Image
 
 from . import ui, windows
 from .config import CARPETA_ASSETS, NOMBRE_APP, VERSION, Ajustes
-from .herramientas import HERRAMIENTAS
+from .herramientas.registro import HERRAMIENTAS
 
 
 class App(ctk.CTk):

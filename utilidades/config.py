@@ -10,6 +10,8 @@ RAIZ = Path(__file__).resolve().parent.parent
 CARPETA_ASSETS = RAIZ / "assets"
 CARPETA_QR = RAIZ / "generados"
 CARPETA_DESCARGAS = RAIZ / "descargas"
+CARPETA_AUDIOS = RAIZ / "generados" / "voz"
+CARPETA_VOCES = RAIZ / "voces"
 ARCHIVO_AJUSTES = RAIZ / "ajustes.json"
 
 _POR_DEFECTO = {
@@ -23,6 +25,10 @@ _POR_DEFECTO = {
     "yt_calidad_mp3": "320 kbps",
     "yt_calidad_mp4": "Máxima",
     "sp_calidad": "320 kbps",
+    "voz_voz": "Predeterminada",
+    "voz_idioma": "Español",
+    "voz_expresividad": 0.5,
+    "voz_formato": "MP3",
 }
 
 
